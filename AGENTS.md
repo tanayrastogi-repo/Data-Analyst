@@ -8,6 +8,7 @@ This file contains guidelines and instructions for agentic coding agents working
 
 ### Tech Stack
 - **Package Manager**: `uv`
+- **Data Processing**: `polars` (instead of pandas)
 - **Development Notebook**: `marimo`
 - **Orchestration**: `LangGraph`
 - **LLM Provider**: Google Gemini (via `GEMINI_API_KEY`)
@@ -251,70 +252,80 @@ def load_csv(path: str) -> pd.DataFrame:
 ```
 
 ### File Organization
+
+**IMPORTANT:** All application code, utility functions, and tests must be written within `agent_app.py` using Marimo cells. Do NOT create separate folders or scripts for utils or tests.
+
 ```
-src/
-├── __init__.py
-├── agent/
-│   ├── __init__.py
-│   ├── state.py          # LangGraph state definitions
-│   ├── nodes.py          # Graph nodes (LoadData, Analyze, etc.)
-│   └── graph.py          # Graph construction
-├── utils/
-│   ├── __init__.py
-│   ├── data_loader.py    # CSV/Parquet loading
-│   └── code_executor.py  # Safe code execution
-└── config.py             # Configuration settings
-
-tests/
-├── __init__.py
-├── test_agent/           # Agent tests
-├── test_utils/           # Utility tests
-└── conftest.py           # Pytest fixtures
-
-agent_app.py              # Main Marimo notebook entry
-pyproject.toml            # Project configuration
-```
-
-### LangGraph Guidelines
-- Define clear state schemas using `TypedDict`.
-- Create modular nodes with single responsibilities.
-- Use proper state transitions and conditional edges.
-- Handle recursion limits with error nodes.
-
-```python
-from typing import TypedDict
-
-class AgentState(TypedDict):
-    df: pd.DataFrame
-    insights: list[str]
-    error: str | None
-```
-
-### Testing Guidelines
-- Place tests in `tests/` directory mirroring `src/` structure.
-- Use descriptive test names: `test_load_csv_returns_dataframe_for_valid_file`.
-- Use fixtures for common setup (e.g., sample DataFrames).
-- Test edge cases and error conditions, not just happy paths.
-
-```python
-import pytest
-import pandas as pd
-from src.utils.data_loader import load_csv
-
-def test_load_csv_returns_dataframe_for_valid_file(tmp_path):
-    csv_file = tmp_path / "test.csv"
-    csv_file.write_text("a,b\n1,2\n3,4")
-    
-    result = load_csv(str(csv_file))
-    
-    assert isinstance(result, pd.DataFrame)
-    assert result.shape == (2, 2)
+project/
+├── agent_app.py              # All code (UI, utils, tests in cells)
+├── pyproject.toml            # Project configuration
+├── .env                      # Environment variables
+├── data/                     # Data files
+│   └── temp/                # Temporary uploaded files
+└── planning/                 # Sprint planning docs
 ```
 
 ### Marimo Notebook Guidelines
 - Keep notebooks reactive and stateless where possible.
 - Use `mo.ui` for interactive elements.
-- Separate logic into `src/` modules, import into notebooks.
+- Write all utility functions in dedicated "Utils" cells (marked with `@app.cell(hide_code=True)` for section headers).
+- Write all tests in dedicated "Tests" cells.
+- Use the cell structure shown in `agent_app.py`:
+  - Import cell for marimo
+  - Title cell (hide_code)
+  - UI components (file upload, buttons, etc.)
+  - Logic cells that depend on UI components
+  - Utils cell for helper functions
+  - Tests cell for test classes
+
+```python
+# Example structure in agent_app.py
+@app.cell
+def _(mo):
+    # UI components
+    upload = mo.ui.file(...)
+    upload
+    return (upload,)
+
+@app.cell
+def _(mo, upload):
+    # Logic using upload
+    if upload.value:
+        ...
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("## Utils")  # Section header
+    return
+
+@app.cell
+def _():
+    # Utility functions
+    def my_helper():
+        ...
+    return my_helper
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md("## Tests")
+    return
+
+@app.cell
+def _():
+    # Test classes
+    class TestMyCode:
+        ...
+    return
+```
+
+---
+
+## Testing Guidelines
+
+- Write tests within `agent_app.py` in dedicated test cells (not in separate files).
+- Use descriptive test names following pytest conventions.
+- Test edge cases and error conditions, not just happy paths.
+- Run tests using Marimo's built-in test execution or pytest.
 
 ---
 

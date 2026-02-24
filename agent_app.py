@@ -28,9 +28,21 @@ def _(mo):
 
 @app.cell
 def _(load_csv_from_bytes, mo, upload):
-    # Display the dataframe on the UI
-    df = load_csv_from_bytes(upload.contents()) if upload.contents() else mo.md("Please upload dataset").callout(kind="warn")
-    mo.vstack([mo.md("## Loaded Dataframe"), df]).callout()
+    file_content = upload.contents()
+
+    if file_content:
+        df = load_csv_from_bytes(file_content)
+    
+        # We combine the success message and the table into one vertical stack
+        output = mo.vstack([
+            mo.vstack([
+                mo.md("## Loaded Dataframe"), 
+                mo.ui.table(df.head())
+            ]).callout()
+        ])
+    else:
+        output = mo.md("Please upload a CSV file").callout(kind="warn").center()
+    output
     return
 
 
@@ -46,7 +58,6 @@ def _(mo):
 @app.cell
 def _():
     import polars as pl
-
 
     def load_csv_from_bytes(data: bytes) -> pl.DataFrame:
         """Load CSV data from bytes into a polars DataFrame.
