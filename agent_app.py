@@ -23,124 +23,190 @@ def _():
         START,
         StateGraph,
         TypedDict,
-        load_dotenv,
         mo,
         os,
         pl,
     )
 
 
-@app.cell
-def _(load_dotenv):
-    load_dotenv()
-    return
-
-
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md("""
+    mo.md(r"""
     # Insight-3: Data Analyst Agent
-    """)
+    """).center()
     return
 
 
-@app.cell(hide_code=True)
-def _(mo):
-    upload = mo.ui.file(label="Upload CSV File", filetypes=[".csv"], kind="area")
-    upload
-    return (upload,)
-
-
-@app.cell(hide_code=True)
-def _(load_csv_from_bytes, mo, upload):
-    file_content = upload.contents()
-
-    if file_content:
-        df = load_csv_from_bytes(file_content)
-
-        # We combine the success message and the table into one vertical stack
-        output = mo.vstack([
-            mo.vstack([
-                mo.md("## Loaded Dataframe"), 
-                mo.ui.table(df.head())
-            ]).callout()
-        ])
-    else:
-        output = mo.md("Please upload a CSV file").callout(kind="warn").center()
-    output
+@app.cell
+def _(agent_info, graph_viz, mo):
+    mo.hstack([graph_viz, agent_info], gap=2, align="start", widths=[1, 2]).callout()
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## AI AGENT
+    ## 1. UPLOAD DATA
     ---
+
+    Add data that you want to analyze. Currently we accept follwing file formats:
+    * CSV
     """)
     return
+
+
+@app.cell
+def _(mo):
+    # 1. File Upload
+    upload_widget = mo.ui.file(label="Upload CSV File", filetypes=[".csv"], kind="area")
+    return (upload_widget,)
+
+
+@app.cell
+def _(load_csv_from_bytes, mo, upload_widget):
+    file_content = upload_widget.contents()
+    if file_content:
+        try:
+            df = load_csv_from_bytes(file_content)
+            data_view = mo.ui.table(df, label="Loaded Data", page_size=5)
+        except Exception as e:
+            data_view = mo.md(f"Error loading CSV: {e}").callout(kind="danger")
+    else:
+        data_view = mo.md("No data loaded yet.")
+    return (data_view,)
+
+
+@app.cell
+def _(data_view, mo, upload_widget):
+    # Combine Upload + Preview
+    upload_area = mo.hstack([upload_widget, data_view], widths=[1, 1])
+    upload_area
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## 2. AGENTIC ANALYSIS
+    ---
+
+    First select the model that you want to use for analysis. Currently we only support the google models. Select a model from the list table below.
+    """)
+    return
+
+
+@app.cell
+def _(model_selector):
+    model_selector
+    return
+
+
+@app.cell
+def _(mo, run_agent, selected_model_name):
+    # --- Bottom Row: Chat Interface ---
+
+    def chat_response(messages, config):
+        user_msg = messages[-1].content
+        # Use the currently selected model from the top row's state
+        return run_agent(prompt=user_msg, model_name=selected_model_name)
+
+    chat_interface = mo.ui.chat(
+        chat_response,
+        prompts=[
+            "What are the columns?",
+            "Give me a summary",
+            "Plot the distribution of age",
+        ],
+        show_configuration_controls=False,
+    )
+
+    chat_interface
+    return
+
+
+@app.cell
+def _(mo):
+    # Info Markdown
+    agent_info=mo.md("""
+    ### About Insight-3
+
+    **Insight-3** is an autonomous Data Analyst agent designed to help you explore and understand your data.
+
+    *   **Upload** your dataset (CSV).
+    *   **Select** a powerful Gemini model.
+    *   **Ask** questions in natural language.
+
+    The agent uses **LangGraph** to orchestrate reasoning and **Polars** for high-performance data processing.
+    """)
+    return (agent_info,)
 
 
 @app.cell
 def _(list_supported_models, mo):
-    # Choose a model from the list
+    # Model Selection (Needed for Graph)
     try:
         models_info = list_supported_models()
-        model = mo.ui.table(
-            models_info, selection="single", label="## Choose a model", initial_selection=[15]
-        )
+        # Default to a Flash model if possible
+        initial_idx = 0
+        for i, m in enumerate(models_info):
+            if "flash" in m["Name"].lower():
+                initial_idx = i
+                break
+
+        model_selector = mo.ui.table(
+            models_info,
+            selection="single",
+            label="Choose A LLM Agent ",
+            initial_selection=[initial_idx],
+            page_size=6,
+        ).callout()
     except ValueError as e:
-        model = mo.md(f"**Error:** {str(e)}").callout(kind="danger")
-
-    model
-    return (model,)
+        model_selector = mo.md(f"**Error:** {str(e)}").callout(kind="danger")
+    return (model_selector,)
 
 
 @app.cell
-def _(model):
-    model.value[0]["Name"]
+def _(get_agent_graph, mo, model_selector):
+    # Graph Visualization (Dependent on Model Selector)
+    selected_model_name = "models/gemini-1.5-flash"  # Default fallback
+    if isinstance(model_selector, mo.ui.table) and model_selector.value:
+        selected_model_name = model_selector.value[0]["Name"]
+
+    graph = get_agent_graph(selected_model_name)
+    graph_viz = mo.mermaid(graph.get_graph().draw_mermaid())
+    return graph_viz, selected_model_name
+
+
+@app.cell(hide_code=True)
+def _():
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    return
+
+
+@app.cell(hide_code=True)
+def _():
     return
 
 
 @app.cell
-def _(get_agent_graph, mo, model):
-    # Visualize the graph
-    graph = get_agent_graph(model.value[0]["Name"])
-    graph_png = graph.get_graph()
-    mo.md("### Agent Workflow Graph")
-    return (graph_png,)
-
-
-@app.cell
-def _(graph_png, mo):
-    mo.mermaid(graph_png.draw_mermaid())
-    return
-
-
-@app.cell
-def _(mo, model, run_agent):
-    def simple_echo_model(messages, config):
-        message = messages[-1].content
-        return run_agent(prompt=message, model_name=model.value[0]["Name"])
-
-    agent = mo.ui.chat(
-        simple_echo_model,
-        prompts=["Hello", "How are you?"],
-        show_configuration_controls=True
-    )
-    agent
+def _():
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## Utils
+    ### UTILS
     ---
     """)
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(
     BaseMessage,
     ChatGoogleGenerativeAI,
@@ -287,12 +353,13 @@ def _(
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## TESTS
+    ### TESTS
+    ---
     """)
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     import pytest
     from unittest.mock import patch, MagicMock
@@ -300,7 +367,7 @@ def _():
     return (MagicMock,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(MagicMock, load_csv_from_bytes, pl, run_agent):
     class TestDataIngestion:
         """Tests for Story 1.1: Data Ingestion Interface"""
@@ -339,21 +406,12 @@ def _(MagicMock, load_csv_from_bytes, pl, run_agent):
     return
 
 
-@app.cell
-def _():
-    return
-
-
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## DEBUGGING
+    ### DEBUGGING
+    ---
     """)
-    return
-
-
-@app.cell
-def _():
     return
 
 
