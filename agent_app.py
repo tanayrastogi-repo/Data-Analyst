@@ -44,14 +44,14 @@ def _(mo):
     return
 
 
-@app.cell(disabled=True, hide_code=True)
+@app.cell(hide_code=True)
 def _(mo):
     upload = mo.ui.file(label="Upload CSV File", filetypes=[".csv"], kind="area")
     upload
     return (upload,)
 
 
-@app.cell(disabled=True, hide_code=True)
+@app.cell(hide_code=True)
 def _(load_csv_from_bytes, mo, upload):
     file_content = upload.contents()
 
@@ -86,7 +86,7 @@ def _(list_supported_models, mo):
     try:
         models_info = list_supported_models()
         model = mo.ui.table(
-            models_info, selection="single", label="## Supported Models", initial_selection=[0]
+            models_info, selection="single", label="## Choose a model", initial_selection=[15]
         )
     except ValueError as e:
         model = mo.md(f"**Error:** {str(e)}").callout(kind="danger")
@@ -102,12 +102,6 @@ def _(model):
 
 
 @app.cell
-def _(model, run_agent):
-    run_agent(prompt="The sun is shining", model_name=model.value[0]["Name"])
-    return
-
-
-@app.cell
 def _(get_agent_graph, mo, model):
     # Visualize the graph
     graph = get_agent_graph(model.value[0]["Name"])
@@ -119,6 +113,21 @@ def _(get_agent_graph, mo, model):
 @app.cell
 def _(graph_png, mo):
     mo.mermaid(graph_png.draw_mermaid())
+    return
+
+
+@app.cell
+def _(mo, model, run_agent):
+    def simple_echo_model(messages, config):
+        message = messages[-1].content
+        return run_agent(prompt=message, model_name=model.value[0]["Name"])
+
+    agent = mo.ui.chat(
+        simple_echo_model,
+        prompts=["Hello", "How are you?"],
+        show_configuration_controls=True
+    )
+    agent
     return
 
 
@@ -163,22 +172,23 @@ def _(
 
 
     # ------------ LANGGRAPH AGENT ------------#
-
     # Class to define the agent memory
     class AgentState(TypedDict):
         messages: list[BaseMessage]
 
     # Build langgrah agent
-    def get_agent_graph(model_name: str):
+    def get_agent_graph(model_name: str, llm=None):
         """Build and return the LangGraph agent graph.
 
         Args:
             model_name: Name of the Google model to use.
+            llm: Optional LLM instance. If None, creates ChatGoogleGenerativeAI.
 
         Returns:
             The compiled LangGraph graph.
         """
-        llm = ChatGoogleGenerativeAI(model=model_name)
+        if llm is None:
+            llm = ChatGoogleGenerativeAI(model=model_name)
 
         def call_model(state: AgentState):
             response = llm.invoke(state["messages"])
@@ -192,25 +202,26 @@ def _(
         return workflow.compile()
 
     # Given prompt replies back to agent
-    def run_agent(prompt: str, model_name: str) -> str:
+    def run_agent(prompt: str, model_name: str, llm=None) -> str:
         """Run the LangGraph agent with the given prompt.
 
         Args:
             prompt: The user's question or command.
             model_name: Name of the Google model to use.
+            llm: Optional LLM instance for testing.
 
         Returns:
             The agent's response as a string.
         """
-        # Load the API KEY
-        if not os.getenv("GOOGLE_API_KEY"):
+        # Load the API KEY if we are creating the LLM
+        if llm is None and not os.getenv("GOOGLE_API_KEY"):
             raise ValueError("GOOGLE_API_KEY not found in environment.")
 
-        app = get_agent_graph(model_name)
-
+        # Create the langgraph
+        app = get_agent_graph(model_name, llm=llm)
+        # Run the model
         inputs = {"messages": [HumanMessage(content=prompt)]}
         result = app.invoke(inputs)
-
         return result["messages"][-1].content
 
 
@@ -286,11 +297,11 @@ def _():
     import pytest
     from unittest.mock import patch, MagicMock
 
-    return MagicMock, patch
+    return (MagicMock,)
 
 
 @app.cell
-def _(MagicMock, load_csv_from_bytes, patch, pl, run_agent):
+def _(MagicMock, load_csv_from_bytes, pl, run_agent):
     class TestDataIngestion:
         """Tests for Story 1.1: Data Ingestion Interface"""
 
@@ -310,25 +321,17 @@ def _(MagicMock, load_csv_from_bytes, patch, pl, run_agent):
         """Tests for the LangGraph Agent"""
 
         @staticmethod
-        @patch("langchain_google_genai.ChatGoogleGenerativeAI")
-        @patch("os.getenv")
-        def test_run_agent_returns_response(mock_getenv, mock_llm_class):
-            """Given a prompt, when run_agent is called, then it should return a string response"""
-            # Mock GEMINI_API_KEY presence
-            mock_getenv.return_value = "fake_key"
-
-            # Mock LLM invoke
-            mock_llm_instance = MagicMock()
-            mock_llm_class.return_value = mock_llm_instance
+        def test_run_agent_returns_response():
+            """Given a prompt and mock LLM, when run_agent is called, then it should return a string response"""
+            # Mock LLM instance
+            mock_llm = MagicMock()
 
             from langchain_core.messages import AIMessage
-
-            mock_llm_instance.invoke.return_value = AIMessage(
-                content="Hello, I am a mock agent!"
-            )
+            mock_llm.invoke.return_value = AIMessage(content="Hello, I am a mock agent!")
 
             prompt = "Hello, how are you?"
-            response = run_agent(prompt)
+            # We pass the mock_llm directly, bypassing the need for API keys and real requests
+            response = run_agent(prompt, "models/gemini-1.5-flash", llm=mock_llm)
 
             assert isinstance(response, str)
             assert response == "Hello, I am a mock agent!"
